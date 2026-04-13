@@ -17,81 +17,141 @@ static const char *TAG = "tools";
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
 static char *s_tools_json = NULL;  /* cached JSON array string */
+
+ 
 // ====================== WS2812 驱动配置 ======================
-#include "led_strip.h"  // 引入官方 led_strip 组件
+// ====================== WS2812 驱动配置（修复版） ======================
+#include "led_strip.h"
+#include "esp_timer.h"  // 引入定时器组件
 
 #define WS2812_GPIO 48        // 板载 WS2812 连接的 GPIO 引脚
-static led_strip_handle_t s_led_strip = NULL;  // LED 驱动句柄
+#define BREATH_INTERVAL_MS 10 // 呼吸刷新间隔（越小越丝滑，建议5-10ms）
 
-// 🔥 修复版初始化：不会重复创建，但会保证句柄有效
+static led_strip_handle_t s_led_strip = NULL;  // LED 驱动句柄
+static bool s_breath_enabled = false;         // 呼吸灯总开关
+static uint8_t s_r = 0, s_g = 0, s_b = 0;     // 当前目标颜色
+static uint8_t s_brightness = 0;              // 当前亮度（0-255）
+static int8_t s_breath_dir = 1;               // 呼吸方向：1=渐亮，-1=渐暗
+static esp_timer_handle_t s_breath_timer = NULL; // 呼吸定时器句柄
+
+// 定时器回调函数：非阻塞式呼吸循环（核心修复）
+static void breath_timer_callback(void *arg)
+{
+    if (!s_breath_enabled || !s_led_strip) return;
+
+    // 更新亮度
+    s_brightness += s_breath_dir;
+    if (s_brightness >= 255) {
+        s_brightness = 255;
+        s_breath_dir = -1; // 到最大亮度，开始渐暗
+    } else if (s_brightness <= 0) {
+        s_brightness = 0;
+        s_breath_dir = 1;  // 到最小亮度，开始渐亮
+    }
+
+    // 计算当前RGB值（按亮度缩放）
+    uint8_t nr = (s_r * s_brightness) / 255;
+    uint8_t ng = (s_g * s_brightness) / 255;
+    uint8_t nb = (s_b * s_brightness) / 255;
+
+    // 更新LED
+    led_strip_set_pixel(s_led_strip, 0, nr, ng, nb);
+    led_strip_refresh(s_led_strip);
+}
+
+// 初始化WS2812+呼吸定时器（只执行一次）
 static esp_err_t ws2812_init(void)
 {
-    if (s_led_strip == NULL) {  // 只在未初始化时创建
+    if (s_led_strip == NULL) {
+        // 1. 初始化WS2812驱动
         led_strip_config_t strip_cfg = {
             .strip_gpio_num = WS2812_GPIO,
             .max_leds = 1,
             .led_model = LED_MODEL_WS2812,
             .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
         };
-
         led_strip_rmt_config_t rmt_cfg = {
             .clk_src = RMT_CLK_SRC_DEFAULT,
             .resolution_hz = 10 * 1000 * 1000,
             .flags.with_dma = false,
         };
-
-        led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_led_strip);
+        ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_led_strip));
         led_strip_clear(s_led_strip);
+
+        // 2. 初始化呼吸定时器（只创建一次）
+        esp_timer_create_args_t timer_args = {
+            .callback = breath_timer_callback,
+            .name = "breath_timer",
+            .dispatch_method = ESP_TIMER_TASK, // 在任务中执行，避免中断阻塞
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_breath_timer));
+        // 启动定时器（一直运行，由s_breath_enabled控制是否生效）
+        ESP_ERROR_CHECK(esp_timer_start_periodic(s_breath_timer, BREATH_INTERVAL_MS * 1000));
     }
     return ESP_OK;
 }
-// WS2812 颜色设置函数（r: 红色, g: 绿色, b: 蓝色，取值 0-255）
+
+// 修复版ws2812_set：只设置颜色，不做阻塞循环
 static esp_err_t ws2812_set(uint8_t r, uint8_t g, uint8_t b)
 {
-    ws2812_init();  // 确保驱动已初始化
-    led_strip_set_pixel(s_led_strip, 0, r, g, b);  // 这里保持 RGB 不动！
-    led_strip_refresh(s_led_strip);  // 刷新显示，使颜色生效
+    ws2812_init(); // 确保初始化完成
+
+    // 更新目标颜色
+    s_r = r;
+    s_g = g;
+    s_b = b;
+
+    if (!s_breath_enabled) {
+        // 非呼吸模式：直接常亮
+        led_strip_set_pixel(s_led_strip, 0, r, g, b);
+        led_strip_refresh(s_led_strip);
+    }
+    // 呼吸模式：由定时器自动更新，无需手动操作
     return ESP_OK;
 }
 
-
-// 颜色控制工具执行函数（off 熄灭）
-static esp_err_t tool_off_execute(const char *in, char *out, size_t len) {
-    ws2812_set(0, 0, 0);
-    snprintf(out, len, "[车灯] 已关闭"); // 改成统一风格
+// 修复版呼吸灯开关工具
+static esp_err_t tool_car_light_breath_execute(const char *in, char *out, size_t len)
+{
+    s_breath_enabled = true;
+    // 开启呼吸后，重置亮度和方向，让呼吸从0开始
+    s_brightness = 0;
+    s_breath_dir = 1;
+    snprintf(out, len, "[车灯] 呼吸灯已开启，当前颜色 R:%d G:%d B:%d", s_r, s_g, s_b);
     return ESP_OK;
 }
-// 通用车灯颜色设置工具（稳定解析版，完美兼容你原来的代码）
+
+// 修复版关灯工具（同步关闭呼吸）
+static esp_err_t tool_off_execute(const char *in, char *out, size_t len)
+{
+    s_breath_enabled = false; // 关闭呼吸
+    ws2812_set(0, 0, 0);     // 熄灭车灯
+    snprintf(out, len, "[车灯] 已关闭");
+    return ESP_OK;
+}
+
+// 颜色设置工具保持不变，完全兼容原有逻辑
 static esp_err_t tool_car_light_color_execute(const char *in, char *out, size_t len) {
-    // 默认黑色
     int r = 0, g = 0, b = 0;
-
-    // 用 cJSON 正确解析 LLM 传来的任意格式 JSON
     cJSON *root = cJSON_Parse(in);
     if (root != NULL) {
-        // 读取 r g b
         cJSON *node_r = cJSON_GetObjectItem(root, "r");
         cJSON *node_g = cJSON_GetObjectItem(root, "g");
         cJSON *node_b = cJSON_GetObjectItem(root, "b");
-
         if (cJSON_IsNumber(node_r)) r = node_r->valueint;
         if (cJSON_IsNumber(node_g)) g = node_g->valueint;
         if (cJSON_IsNumber(node_b)) b = node_b->valueint;
-
         cJSON_Delete(root);
     }
-
-    // 限幅 0~255
     r = (r < 0) ? 0 : (r > 255) ? 255 : r;
     g = (g < 0) ? 0 : (g > 255) ? 255 : g;
     b = (b < 0) ? 0 : (b > 255) ? 255 : b;
 
-    // 直接调用你原来正常的 ws2812_set，完全不用改！
     ws2812_set(r, g, b);
-
     snprintf(out, len, "车灯已打开 → R:%d G:%d B:%d", r, g, b);
     return ESP_OK;
 }
+ 
 
 static void register_tool(const mimi_tool_t *tool)
 {
@@ -308,7 +368,13 @@ esp_err_t tool_registry_init(void)
     };
     register_tool(&car_light_off);
 
-
+mimi_tool_t car_light_breath = {
+    .name = "car_light_breath",
+    .description = "开启车灯呼吸灯效果，用户说呼吸灯、渐变、呼吸模式时必须调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_light_breath_execute,
+};
+register_tool(&car_light_breath);
 
     build_tools_json();
 
