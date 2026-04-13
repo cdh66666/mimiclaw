@@ -23,77 +23,75 @@ static char *s_tools_json = NULL;  /* cached JSON array string */
 #define WS2812_GPIO 48        // 板载 WS2812 连接的 GPIO 引脚
 static led_strip_handle_t s_led_strip = NULL;  // LED 驱动句柄
 
-// WS2812 初始化函数
+// 🔥 修复版初始化：不会重复创建，但会保证句柄有效
 static esp_err_t ws2812_init(void)
 {
-    if (s_led_strip != NULL) return ESP_OK;  // 避免重复初始化
+    if (s_led_strip == NULL) {  // 只在未初始化时创建
+        led_strip_config_t strip_cfg = {
+            .strip_gpio_num = WS2812_GPIO,
+            .max_leds = 1,
+            .led_model = LED_MODEL_WS2812,
+            .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        };
 
-    // LED 灯带配置
-    led_strip_config_t strip_cfg = {
-        .strip_gpio_num = WS2812_GPIO,    // 连接的 GPIO 引脚
-        .max_leds = 1,                    // 灯珠数量（板载为 1 个）
-        .led_model = LED_MODEL_WS2812,    // 灯珠型号为 WS2812
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,  // WS2812 颜色格式为 GRB
-    };
+        led_strip_rmt_config_t rmt_cfg = {
+            .clk_src = RMT_CLK_SRC_DEFAULT,
+            .resolution_hz = 10 * 1000 * 1000,
+            .flags.with_dma = false,
+        };
 
-    // RMT 外设配置（驱动 WS2812 需用到 RMT 外设）
-    led_strip_rmt_config_t rmt_cfg = {
-        .clk_src = RMT_CLK_SRC_DEFAULT,   // 默认时钟源
-        .resolution_hz = 10 * 1000 * 1000,// 分辨率 10MHz
-        .flags.with_dma = false,          // 无需 DMA（单灯珠无需高速传输）
-    };
-
-    // 创建 RMT 驱动的 LED 设备
-    led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_led_strip);
-    led_strip_clear(s_led_strip);  // 初始化后熄灭彩灯
+        led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_led_strip);
+        led_strip_clear(s_led_strip);
+    }
     return ESP_OK;
 }
-
 // WS2812 颜色设置函数（r: 红色, g: 绿色, b: 蓝色，取值 0-255）
 static esp_err_t ws2812_set(uint8_t r, uint8_t g, uint8_t b)
 {
     ws2812_init();  // 确保驱动已初始化
-    led_strip_set_pixel(s_led_strip, 0, r, g, b);  // 设置第 0 个灯珠颜色
+    led_strip_set_pixel(s_led_strip, 0, r, g, b);  // 这里保持 RGB 不动！
     led_strip_refresh(s_led_strip);  // 刷新显示，使颜色生效
     return ESP_OK;
 }
 
-// 颜色控制工具执行函数（red 红灯）
-static esp_err_t tool_red_execute(const char *in, char *out, size_t len) {
-    ws2812_set(255, 0, 0);  // 红色：R=255, G=0, B=0
-    snprintf(out, len, "Red ON");  // 工具执行结果反馈
-    return ESP_OK;
-}
-
-// 颜色控制工具执行函数（green 绿灯）
-static esp_err_t tool_green_execute(const char *in, char *out, size_t len) {
-    ws2812_set(0, 255, 0);  // 绿色：R=0, G=255, B=0
-    snprintf(out, len, "Green ON");
-    return ESP_OK;
-}
-
-// 颜色控制工具执行函数（blue 蓝灯）
-static esp_err_t tool_blue_execute(const char *in, char *out, size_t len) {
-    ws2812_set(0, 0, 255);  // 蓝色：R=0, G=0, B=255
-    snprintf(out, len, "Blue ON");
-    return ESP_OK;
-}
-
-// 颜色控制工具执行函数（yellow 暖黄灯）
-static esp_err_t tool_yellow_execute(const char *in, char *out, size_t len) {
-    ws2812_set(255, 150, 0);  // 暖黄色：R=255, G=150, B=0（避免纯黄刺眼）
-    snprintf(out, len, "Yellow ON");
-    return ESP_OK;
-}
 
 // 颜色控制工具执行函数（off 熄灭）
 static esp_err_t tool_off_execute(const char *in, char *out, size_t len) {
-    ws2812_set(0, 0, 0);  // 熄灭：R=0, G=0, B=0
-    snprintf(out, len, "Light OFF");
+    ws2812_set(0, 0, 0);
+    snprintf(out, len, "[车灯] 已关闭"); // 改成统一风格
     return ESP_OK;
 }
+// 通用车灯颜色设置工具（稳定解析版，完美兼容你原来的代码）
+static esp_err_t tool_car_light_color_execute(const char *in, char *out, size_t len) {
+    // 默认黑色
+    int r = 0, g = 0, b = 0;
 
+    // 用 cJSON 正确解析 LLM 传来的任意格式 JSON
+    cJSON *root = cJSON_Parse(in);
+    if (root != NULL) {
+        // 读取 r g b
+        cJSON *node_r = cJSON_GetObjectItem(root, "r");
+        cJSON *node_g = cJSON_GetObjectItem(root, "g");
+        cJSON *node_b = cJSON_GetObjectItem(root, "b");
 
+        if (cJSON_IsNumber(node_r)) r = node_r->valueint;
+        if (cJSON_IsNumber(node_g)) g = node_g->valueint;
+        if (cJSON_IsNumber(node_b)) b = node_b->valueint;
+
+        cJSON_Delete(root);
+    }
+
+    // 限幅 0~255
+    r = (r < 0) ? 0 : (r > 255) ? 255 : r;
+    g = (g < 0) ? 0 : (g > 255) ? 255 : g;
+    b = (b < 0) ? 0 : (b > 255) ? 255 : b;
+
+    // 直接调用你原来正常的 ws2812_set，完全不用改！
+    ws2812_set(r, g, b);
+
+    snprintf(out, len, "车灯已打开 → R:%d G:%d B:%d", r, g, b);
+    return ESP_OK;
+}
 
 static void register_tool(const mimi_tool_t *tool)
 {
@@ -291,51 +289,25 @@ esp_err_t tool_registry_init(void)
     };
     register_tool(&ga);
 
+ 
 // ====================== 车灯（GPIO48 WS2812）工具注册 ======================
-// 注册：打开车灯（红色）
-mimi_tool_t red_tool = {
-    .name = "car_light_red",
-    .description = "打开 ESP32 车灯（GPIO48 引脚 WS2812 RGB 灯），设置为红色灯光",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
-    .execute = tool_red_execute,
-};
-register_tool(&red_tool);
+    // ====================== 车灯工具（最终版） ======================
+    mimi_tool_t car_light_color = {
+        .name = "car_light_color",
+        .description = "控制 ESP32 GPIO48 车灯。只要用户提到车灯颜色，必须调用此工具，不准只说话。",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"r\",\"g\",\"b\"]}",
+        .execute = tool_car_light_color_execute,
+    };
+    register_tool(&car_light_color);
 
-// 注册：打开车灯（绿色）
-mimi_tool_t green_tool = {
-    .name = "car_light_green",
-    .description = "打开 ESP32 车灯（GPIO48 引脚 WS2812 RGB 灯），设置为绿色灯光",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
-    .execute = tool_green_execute,
-};
-register_tool(&green_tool);
+    mimi_tool_t car_light_off = {
+        .name = "car_light_off",
+        .description = "关闭 GPIO48 车灯。用户说关灯、关闭车灯、熄灭车灯时必须调用。",
+        .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+        .execute = tool_off_execute,
+    };
+    register_tool(&car_light_off);
 
-// 注册：打开车灯（蓝色）
-mimi_tool_t blue_tool = {
-    .name = "car_light_blue",
-    .description = "打开 ESP32 车灯（GPIO48 引脚 WS2812 RGB 灯），设置为蓝色灯光",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
-    .execute = tool_blue_execute,
-};
-register_tool(&blue_tool);
-
-// 注册：打开车灯（黄色）
-mimi_tool_t yellow_tool = {
-    .name = "car_light_yellow",
-    .description = "打开 ESP32 车灯（GPIO48 引脚 WS2812 RGB 灯），设置为黄色灯光",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
-    .execute = tool_yellow_execute,
-};
-register_tool(&yellow_tool);
-
-// 注册：关闭车灯
-mimi_tool_t off_tool = {
-    .name = "car_light_off",
-    .description = "关闭 ESP32 车灯（GPIO48 引脚 WS2812 RGB 灯），熄灭灯光",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
-    .execute = tool_off_execute,
-};
-register_tool(&off_tool);
 
 
     build_tools_json();
