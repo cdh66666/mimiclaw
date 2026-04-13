@@ -17,7 +17,7 @@
 #define MIMI_SECRET_TG_TOKEN        ""
 #endif
 #ifndef MIMI_SECRET_API_KEY
-#define MIMI_SECRET_API_KEY         "sk-3b87f3a419744c9881623109215d4bcf"
+#define MIMI_SECRET_API_KEY         "sk-71d7e5dac0334ae184609297f3cc15d6"
 #endif
 #ifndef MIMI_SECRET_MODEL
 #define MIMI_SECRET_MODEL           "deepseek-chat"

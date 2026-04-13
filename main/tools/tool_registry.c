@@ -24,7 +24,7 @@ static char *s_tools_json = NULL;  /* cached JSON array string */
 #include "led_strip.h"
 #include "esp_timer.h"  // 引入定时器组件
 
-#define WS2812_GPIO 48        // 板载 WS2812 连接的 GPIO 引脚
+#define WS2812_GPIO 14        // 板载 WS2812 连接的 GPIO 引脚
 #define BREATH_INTERVAL_MS 10 // 呼吸刷新间隔（越小越丝滑，建议5-10ms）
 
 static led_strip_handle_t s_led_strip = NULL;  // LED 驱动句柄
@@ -350,11 +350,11 @@ esp_err_t tool_registry_init(void)
     register_tool(&ga);
 
  
-// ====================== 车灯（GPIO48 WS2812）工具注册 ======================
+// ====================== 车灯（GPIO14 WS2812）工具注册 ======================
     // ====================== 车灯工具（最终版） ======================
     mimi_tool_t car_light_color = {
         .name = "car_light_color",
-        .description = "控制 ESP32 GPIO48 车灯。只要用户提到车灯颜色，必须调用此工具，不准只说话。",
+        .description = "控制 ESP32 GPIO14 车灯。只要用户提到车灯颜色，必须调用此工具，不准只说话。",
         .input_schema_json = "{\"type\":\"object\",\"properties\":{\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"r\",\"g\",\"b\"]}",
         .execute = tool_car_light_color_execute,
     };
@@ -362,7 +362,7 @@ esp_err_t tool_registry_init(void)
 
     mimi_tool_t car_light_off = {
         .name = "car_light_off",
-        .description = "关闭 GPIO48 车灯。用户说关灯、关闭车灯、熄灭车灯时必须调用。",
+        .description = "关闭 GPIO14 车灯。用户说关灯、关闭车灯、熄灭车灯时必须调用。",
         .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
         .execute = tool_off_execute,
     };
