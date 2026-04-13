@@ -8,22 +8,22 @@
 #endif
 
 #ifndef MIMI_SECRET_WIFI_SSID
-#define MIMI_SECRET_WIFI_SSID       ""
+#define MIMI_SECRET_WIFI_SSID       "SCF-XIAOMI"
 #endif
 #ifndef MIMI_SECRET_WIFI_PASS
-#define MIMI_SECRET_WIFI_PASS       ""
+#define MIMI_SECRET_WIFI_PASS       "scf888888"
 #endif
 #ifndef MIMI_SECRET_TG_TOKEN
 #define MIMI_SECRET_TG_TOKEN        ""
 #endif
 #ifndef MIMI_SECRET_API_KEY
-#define MIMI_SECRET_API_KEY         ""
+#define MIMI_SECRET_API_KEY         "sk-3b87f3a419744c9881623109215d4bcf"
 #endif
 #ifndef MIMI_SECRET_MODEL
-#define MIMI_SECRET_MODEL           ""
+#define MIMI_SECRET_MODEL           "deepseek-chat"
 #endif
 #ifndef MIMI_SECRET_MODEL_PROVIDER
-#define MIMI_SECRET_MODEL_PROVIDER  "anthropic"
+#define MIMI_SECRET_MODEL_PROVIDER  "openai"
 #endif
 #ifndef MIMI_SECRET_PROXY_HOST
 #define MIMI_SECRET_PROXY_HOST      ""
@@ -38,10 +38,10 @@
 #define MIMI_SECRET_SEARCH_KEY      ""
 #endif
 #ifndef MIMI_SECRET_FEISHU_APP_ID
-#define MIMI_SECRET_FEISHU_APP_ID   ""
+#define MIMI_SECRET_FEISHU_APP_ID   "cli_a952136e61ba1cbd"
 #endif
 #ifndef MIMI_SECRET_FEISHU_APP_SECRET
-#define MIMI_SECRET_FEISHU_APP_SECRET ""
+#define MIMI_SECRET_FEISHU_APP_SECRET "D1gxYTw9QB3rlWviQmj3ogWaQCsqR0ZJ"
 #endif
 #ifndef MIMI_SECRET_TAVILY_KEY
 #define MIMI_SECRET_TAVILY_KEY      ""
@@ -87,7 +87,7 @@
 #define MIMI_LLM_PROVIDER_DEFAULT    "anthropic"
 #define MIMI_LLM_MAX_TOKENS          4096
 #define MIMI_LLM_API_URL             "https://api.anthropic.com/v1/messages"
-#define MIMI_OPENAI_API_URL          "https://api.openai.com/v1/chat/completions"
+#define MIMI_OPENAI_API_URL          "https://api.deepseek.com/v1/chat/completions"
 #define MIMI_LLM_API_VERSION         "2023-06-01"
 #define MIMI_LLM_STREAM_BUF_SIZE     (32 * 1024)
 #define MIMI_LLM_LOG_VERBOSE_PAYLOAD 0
