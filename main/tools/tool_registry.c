@@ -12,14 +12,144 @@
 
 static const char *TAG = "tools";
 
-#define MAX_TOOLS 16
+#define MAX_TOOLS 24
 
 static mimi_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
 static char *s_tools_json = NULL;  /* cached JSON array string */
 
  
-// ====================== WS2812 驱动配置 ======================
+// ====================== 小车电机驱动配置 ======================
+#include "driver/gpio.h"
+#define MOTOR_IN1_GPIO 11   // 左电机 +
+#define MOTOR_IN2_GPIO 10   // 左电机 -
+#define MOTOR_IN3_GPIO 12   // 右电机 +
+#define MOTOR_IN4_GPIO 13   // 右电机 -
+
+// 电机状态枚举
+typedef enum {
+    MOTOR_STOP = 0,
+    MOTOR_FORWARD,
+    MOTOR_BACKWARD,
+    MOTOR_LEFT,
+    MOTOR_RIGHT
+} motor_mode_t;
+
+static motor_mode_t s_current_motor_mode = MOTOR_STOP;
+
+// 电机 GPIO 初始化（只执行一次）
+static void motor_gpio_init(void)
+{
+    static bool initialized = false;
+    if (initialized) return;
+
+    // 配置 4 个引脚为输出模式
+    gpio_config_t gpio_conf = {
+        .pin_bit_mask = (1ULL << MOTOR_IN1_GPIO) |
+                        (1ULL << MOTOR_IN2_GPIO) |
+                        (1ULL << MOTOR_IN3_GPIO) |
+                        (1ULL << MOTOR_IN4_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&gpio_conf);
+
+    // 初始状态：全部停止
+    gpio_set_level(MOTOR_IN1_GPIO, 0);
+    gpio_set_level(MOTOR_IN2_GPIO, 0);
+    gpio_set_level(MOTOR_IN3_GPIO, 0);
+    gpio_set_level(MOTOR_IN4_GPIO, 0);
+
+    initialized = true;
+    ESP_LOGI(TAG, "电机 GPIO 初始化完成");
+}
+
+// 电机控制核心函数
+static void motor_set_mode(motor_mode_t mode)
+{
+    motor_gpio_init(); // 确保初始化
+    s_current_motor_mode = mode;
+
+    switch (mode) {
+        case MOTOR_FORWARD: // 前进
+            gpio_set_level(MOTOR_IN1_GPIO, 1);
+            gpio_set_level(MOTOR_IN2_GPIO, 0);
+            gpio_set_level(MOTOR_IN3_GPIO, 1);
+            gpio_set_level(MOTOR_IN4_GPIO, 0);
+            break;
+
+        case MOTOR_BACKWARD: // 后退
+            gpio_set_level(MOTOR_IN1_GPIO, 0);
+            gpio_set_level(MOTOR_IN2_GPIO, 1);
+            gpio_set_level(MOTOR_IN3_GPIO, 0);
+            gpio_set_level(MOTOR_IN4_GPIO, 1);
+            break;
+
+        case MOTOR_LEFT: // 左转（左轮停，右轮转）
+            gpio_set_level(MOTOR_IN1_GPIO, 0);
+            gpio_set_level(MOTOR_IN2_GPIO, 0);
+            gpio_set_level(MOTOR_IN3_GPIO, 1);
+            gpio_set_level(MOTOR_IN4_GPIO, 0);
+            break;
+
+        case MOTOR_RIGHT: // 右转（右轮停，左轮转）
+            gpio_set_level(MOTOR_IN1_GPIO, 1);
+            gpio_set_level(MOTOR_IN2_GPIO, 0);
+            gpio_set_level(MOTOR_IN3_GPIO, 0);
+            gpio_set_level(MOTOR_IN4_GPIO, 0);
+            break;
+
+        case MOTOR_STOP: // 停止
+        default:
+            gpio_set_level(MOTOR_IN1_GPIO, 0);
+            gpio_set_level(MOTOR_IN2_GPIO, 0);
+            gpio_set_level(MOTOR_IN3_GPIO, 0);
+            gpio_set_level(MOTOR_IN4_GPIO, 0);
+            break;
+    }
+}
+
+// 1. 前进
+static esp_err_t tool_car_forward(const char *in, char *out, size_t len)
+{
+    motor_set_mode(MOTOR_FORWARD);
+    snprintf(out, len, "小车已执行：前进");
+    return ESP_OK;
+}
+
+// 2. 后退
+static esp_err_t tool_car_backward(const char *in, char *out, size_t len)
+{
+    motor_set_mode(MOTOR_BACKWARD);
+    snprintf(out, len, "小车已执行：后退");
+    return ESP_OK;
+}
+
+// 3. 左转
+static esp_err_t tool_car_left(const char *in, char *out, size_t len)
+{
+    motor_set_mode(MOTOR_LEFT);
+    snprintf(out, len, "小车已执行：左转");
+    return ESP_OK;
+}
+
+// 4. 右转
+static esp_err_t tool_car_right(const char *in, char *out, size_t len)
+{
+    motor_set_mode(MOTOR_RIGHT);
+    snprintf(out, len, "小车已执行：右转");
+    return ESP_OK;
+}
+
+// 5. 停止
+static esp_err_t tool_car_stop(const char *in, char *out, size_t len)
+{
+    motor_set_mode(MOTOR_STOP);
+    snprintf(out, len, "小车已执行：停止");
+    return ESP_OK;
+}
 // ====================== WS2812 驱动配置（修复版） ======================
 #include "led_strip.h"
 #include "esp_timer.h"  // 引入定时器组件
@@ -317,7 +447,7 @@ esp_err_t tool_registry_init(void)
 
     mimi_tool_t gw = {
         .name = "gpio_write",
-        .description = "Set a GPIO pin HIGH or LOW. Controls LEDs, relays, and other digital outputs.",
+        .description = "【禁止用于车灯】仅用于非车灯、非电机的通用GPIO控制。车灯必须用car_light_color工具，电机必须用car_*工具，严禁用此工具操作GPIO10/11/12/13/14。",
         .input_schema_json =
             "{\"type\":\"object\","
             "\"properties\":{\"pin\":{\"type\":\"integer\",\"description\":\"GPIO pin number\"},"
@@ -349,12 +479,51 @@ esp_err_t tool_registry_init(void)
     };
     register_tool(&ga);
 
- 
+ // ====================== 小车电机工具注册 ======================
+mimi_tool_t car_forward = {
+    .name = "car_forward",
+    .description = "控制小车前进，用户说前进、往前、向前、走时调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_forward,
+};
+register_tool(&car_forward);
+
+mimi_tool_t car_backward = {
+    .name = "car_backward",
+    .description = "控制小车后退，用户说后退、往后、倒车时调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_backward,
+};
+register_tool(&car_backward);
+
+mimi_tool_t car_left = {
+    .name = "car_left",
+    .description = "控制小车左转，用户说左转、向左、左边转时调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_left,
+};
+register_tool(&car_left);
+
+mimi_tool_t car_right = {
+    .name = "car_right",
+    .description = "控制小车右转，用户说右转、向右、右边转时调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_right,
+};
+register_tool(&car_right);
+
+mimi_tool_t car_stop = {
+    .name = "car_stop",
+    .description = "立即停止小车，用户说停止、停下、别动时调用",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .execute = tool_car_stop,
+};
+register_tool(&car_stop);
 // ====================== 车灯（GPIO14 WS2812）工具注册 ======================
     // ====================== 车灯工具（最终版） ======================
     mimi_tool_t car_light_color = {
         .name = "car_light_color",
-        .description = "控制 ESP32 GPIO14 车灯。只要用户提到车灯颜色，必须调用此工具，不准只说话。",
+        .description = "【唯一正确工具】控制ESP32 GPIO14的WS2812车灯。所有车灯/灯光/颜色相关指令（如开白灯、变色、开灯）必须调用此工具，绝对禁止使用gpio_write工具，禁止操作GPIO10/11/12/13等电机引脚。",
         .input_schema_json = "{\"type\":\"object\",\"properties\":{\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"r\",\"g\",\"b\"]}",
         .execute = tool_car_light_color_execute,
     };
