@@ -5,7 +5,8 @@
 #include "tools/tool_files.h"
 #include "tools/tool_cron.h"
 #include "tools/tool_gpio.h"
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include "esp_log.h"
 #include "cJSON.h"
@@ -114,32 +115,107 @@ static void motor_set_mode(motor_mode_t mode)
 // 1. 前进
 static esp_err_t tool_car_forward(const char *in, char *out, size_t len)
 {
+    // 1. 解析时间（默认 0 表示一直动）
+    float duration = 0;
+    cJSON *root = cJSON_Parse(in);
+    if (root) {
+        cJSON *d = cJSON_GetObjectItem(root, "duration");
+        if (cJSON_IsNumber(d)) duration = d->valuedouble;
+        cJSON_Delete(root);
+    }
+
+    // 2. 前进
     motor_set_mode(MOTOR_FORWARD);
-    snprintf(out, len, "小车已执行：前进");
+
+    // 3. 如果有时间，延时后自动停止
+    if (duration > 0) {
+        vTaskDelay(duration * 1000 / portTICK_PERIOD_MS);
+        motor_set_mode(MOTOR_STOP);
+        snprintf(out, len, "前进 %.1f 秒后自动停止", duration);
+    } else {
+        snprintf(out, len, "小车开始前进");
+    }
+
     return ESP_OK;
 }
-
-// 2. 后退
+// 2. 后退（已修复，加了return）
 static esp_err_t tool_car_backward(const char *in, char *out, size_t len)
 {
+    // 1. 解析时间（默认 0 表示一直动）
+    float duration = 0;
+    cJSON *root = cJSON_Parse(in);
+    if (root) {
+        cJSON *d = cJSON_GetObjectItem(root, "duration");
+        if (cJSON_IsNumber(d)) duration = d->valuedouble;
+        cJSON_Delete(root);
+    }
+
+    // 2. 后退
     motor_set_mode(MOTOR_BACKWARD);
-    snprintf(out, len, "小车已执行：后退");
-    return ESP_OK;
+
+    // 3. 如果有时间，延时后自动停止
+    if (duration > 0) {
+        vTaskDelay(duration * 1000 / portTICK_PERIOD_MS);
+        motor_set_mode(MOTOR_STOP);
+        snprintf(out, len, "后退 %.1f 秒后自动停止", duration);
+    } else {
+        snprintf(out, len, "小车开始后退");
+    }
+
+    return ESP_OK;  // <--- 这里补上了！
 }
 
-// 3. 左转
+// 3. 左转（带时间控制，到点自动停）
 static esp_err_t tool_car_left(const char *in, char *out, size_t len)
 {
+    // 解析时间参数（单位：秒）
+    float duration = 0;
+    cJSON *root = cJSON_Parse(in);
+    if (root) {
+        cJSON *d = cJSON_GetObjectItem(root, "duration");
+        if (cJSON_IsNumber(d)) duration = d->valuedouble;
+        cJSON_Delete(root);
+    }
+
+    // 执行左转
     motor_set_mode(MOTOR_LEFT);
-    snprintf(out, len, "小车已执行：左转");
+
+    // 如果设置了时间，延时后自动停止
+    if (duration > 0) {
+        vTaskDelay(duration * 1000 / portTICK_PERIOD_MS);
+        motor_set_mode(MOTOR_STOP);
+        snprintf(out, len, "左转 %.1f 秒后自动停止", duration);
+    } else {
+        snprintf(out, len, "小车开始左转");
+    }
+
     return ESP_OK;
 }
 
-// 4. 右转
+// 4. 右转（带时间控制，补全函数）
 static esp_err_t tool_car_right(const char *in, char *out, size_t len)
 {
+    // 解析时间参数（单位：秒）
+    float duration = 0;
+    cJSON *root = cJSON_Parse(in);
+    if (root) {
+        cJSON *d = cJSON_GetObjectItem(root, "duration");
+        if (cJSON_IsNumber(d)) duration = d->valuedouble;
+        cJSON_Delete(root);
+    }
+
+    // 执行右转
     motor_set_mode(MOTOR_RIGHT);
-    snprintf(out, len, "小车已执行：右转");
+
+    // 如果设置了时间，延时后自动停止
+    if (duration > 0) {
+        vTaskDelay(duration * 1000 / portTICK_PERIOD_MS);
+        motor_set_mode(MOTOR_STOP);
+        snprintf(out, len, "右转 %.1f 秒后自动停止", duration);
+    } else {
+        snprintf(out, len, "小车开始右转");
+    }
+
     return ESP_OK;
 }
 
@@ -478,36 +554,35 @@ esp_err_t tool_registry_init(void)
         .execute = tool_gpio_read_all_execute,
     };
     register_tool(&ga);
-
- // ====================== 小车电机工具注册 ======================
+// ====================== 小车电机工具注册 ======================
 mimi_tool_t car_forward = {
     .name = "car_forward",
-    .description = "控制小车前进，用户说前进、往前、向前、走时调用",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .description = "控制小车前进，支持设置时间，例如：前进2秒",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{\"duration\":{\"type\":\"number\",\"description\":\"运行时间，单位秒\"}},\"required\":[]}",
     .execute = tool_car_forward,
 };
 register_tool(&car_forward);
 
 mimi_tool_t car_backward = {
     .name = "car_backward",
-    .description = "控制小车后退，用户说后退、往后、倒车时调用",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .description = "控制小车后退，支持设置时间，例如：后退1秒",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{\"duration\":{\"type\":\"number\",\"description\":\"运行时间，单位秒\"}},\"required\":[]}",
     .execute = tool_car_backward,
 };
 register_tool(&car_backward);
 
 mimi_tool_t car_left = {
     .name = "car_left",
-    .description = "控制小车左转，用户说左转、向左、左边转时调用",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .description = "控制小车左转，支持设置时间，例如：左转1秒",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{\"duration\":{\"type\":\"number\",\"description\":\"运行时间，单位秒\"}},\"required\":[]}",
     .execute = tool_car_left,
 };
 register_tool(&car_left);
 
 mimi_tool_t car_right = {
     .name = "car_right",
-    .description = "控制小车右转，用户说右转、向右、右边转时调用",
-    .input_schema_json = "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+    .description = "控制小车右转，支持设置时间，例如：右转1秒",
+    .input_schema_json = "{\"type\":\"object\",\"properties\":{\"duration\":{\"type\":\"number\",\"description\":\"运行时间，单位秒\"}},\"required\":[]}",
     .execute = tool_car_right,
 };
 register_tool(&car_right);
