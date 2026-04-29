@@ -18,6 +18,43 @@ static const char *TAG = "agent";
 
 #define TOOL_OUTPUT_SIZE  (8 * 1024)
 
+
+
+// 颜色指令预处理函数：匹配颜色词，直接执行工具，跳过 LLM
+static bool try_direct_color_command(const char *content, char *output, size_t output_size)
+{
+    // 去除消息前后空白字符（避免用户输入空格导致匹配失败）
+    while (*content == ' ' || *content == '\t' || *content == '\n') content++;
+    const char *end = content + strlen(content);
+    while (end > content && (*(end-1) == ' ' || *(end-1) == '\t' || *(end-1) == '\n')) end--;
+    size_t len = end - content;
+
+    // 精确匹配颜色词，触发对应工具
+    if (len == 3 && strncasecmp(content, "red", 3) == 0) {
+        tool_registry_execute("red", "{}", output, output_size);
+        return true;
+    }
+    if (len == 5 && strncasecmp(content, "green", 5) == 0) {
+        tool_registry_execute("green", "{}", output, output_size);
+        return true;
+    }
+    if (len == 4 && strncasecmp(content, "blue", 4) == 0) {
+        tool_registry_execute("blue", "{}", output, output_size);
+        return true;
+    }
+    if (len == 6 && strncasecmp(content, "yellow", 6) == 0) {
+        tool_registry_execute("yellow", "{}", output, output_size);
+        return true;
+    }
+    if (len == 3 && strncasecmp(content, "off", 3) == 0) {
+        tool_registry_execute("off", "{}", output, output_size);
+        return true;
+    }
+
+    return false;  // 不匹配颜色词，走正常 LLM 流程
+}
+
+ 
 /* Build the assistant content array from llm_response_t for the messages history.
  * Returns a cJSON array with text and tool_use blocks. */
 static cJSON *build_assistant_content(const llm_response_t *resp)
@@ -189,7 +226,20 @@ static void agent_loop_task(void *arg)
         mimi_msg_t msg;
         esp_err_t err = message_bus_pop_inbound(&msg, UINT32_MAX);
         if (err != ESP_OK) continue;
-
+       // 新增：颜色指令预处理，匹配则直接执行工具
+        char direct_response[128];
+        if (try_direct_color_command(msg.content, direct_response, sizeof(direct_response))) {
+            ESP_LOGI(TAG, "Direct color command matched, executing tool and responding");
+            // 直接回复工具执行结果，跳过 LLM 调用
+            mimi_msg_t out = {0};
+            strncpy(out.channel, msg.channel, sizeof(out.channel)-1);
+            strncpy(out.chat_id, msg.chat_id, sizeof(out.chat_id)-1);
+            out.content = strdup(direct_response);
+            message_bus_push_outbound(&out);
+            free(msg.content);
+            continue;
+        }
+ 
         ESP_LOGI(TAG, "Processing message from %s:%s", msg.channel, msg.chat_id);
 
         /* 1. Build system prompt */

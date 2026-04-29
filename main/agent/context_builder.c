@@ -55,7 +55,18 @@ esp_err_t context_build_system_prompt(char *buf, size_t size)
         "You can control hardware GPIO pins on the ESP32-S3. Use gpio_read to check switch/sensor states "
         "(digital input confirmation), and gpio_write to control outputs. Pin range is validated by policy — "
         "only allowed pins can be accessed. When asked about switch states or digital I/O, use these tools.\n\n"
-        "Use tools when needed. Provide your final answer as text after using tools.\n\n"
+
+        // 🔥 强制硬件执行规则（模型必须服从）
+        "## HARDWARE CONTROL - MUST FOLLOW\n"
+        "1. For car control: forward, backward, left, right, stop → MUST call tool.\n"
+        "2. For light control: on, off, color, breath → MUST call tool.\n"
+        "3. NEVER reply with text directly. NO 'OK', 'DONE', 'OPENED'.\n"
+        "4. ONLY output tool call JSON. NO natural language.\n"
+        "5. DO NOT simulate results. DO NOT explain anything.\n"
+        "6. Use these tools only:\n"
+        "   car_forward, car_backward, car_left, car_right, car_stop\n"
+        "   car_light_color, car_light_off, car_light_breath\n\n"
+
         "## Memory\n"
         "You have persistent memory stored on local flash:\n"
         "- Long-term memory: " MIMI_SPIFFS_MEMORY_DIR "/MEMORY.md\n"

@@ -24,8 +24,8 @@ static char *s_tools_json = NULL;  /* cached JSON array string */
 #include "driver/gpio.h"
 #define MOTOR_IN1_GPIO 11   // 左电机 +
 #define MOTOR_IN2_GPIO 10   // 左电机 -
-#define MOTOR_IN3_GPIO 12   // 右电机 +
-#define MOTOR_IN4_GPIO 13   // 右电机 -
+#define MOTOR_IN3_GPIO 13   // 右电机 +
+#define MOTOR_IN4_GPIO 12   // 右电机 -
 
 // 电机状态枚举
 typedef enum {
@@ -88,18 +88,18 @@ static void motor_set_mode(motor_mode_t mode)
             gpio_set_level(MOTOR_IN4_GPIO, 1);
             break;
 
-        case MOTOR_LEFT: // 左转（左轮停，右轮转）
+        case MOTOR_LEFT: // 左转（左轮反转，右轮转）
             gpio_set_level(MOTOR_IN1_GPIO, 0);
-            gpio_set_level(MOTOR_IN2_GPIO, 0);
+            gpio_set_level(MOTOR_IN2_GPIO, 1);
             gpio_set_level(MOTOR_IN3_GPIO, 1);
             gpio_set_level(MOTOR_IN4_GPIO, 0);
             break;
 
-        case MOTOR_RIGHT: // 右转（右轮停，左轮转）
+        case MOTOR_RIGHT: // 右转（右轮反转，左轮转）
             gpio_set_level(MOTOR_IN1_GPIO, 1);
             gpio_set_level(MOTOR_IN2_GPIO, 0);
             gpio_set_level(MOTOR_IN3_GPIO, 0);
-            gpio_set_level(MOTOR_IN4_GPIO, 0);
+            gpio_set_level(MOTOR_IN4_GPIO, 1);
             break;
 
         case MOTOR_STOP: // 停止
